@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sampler-Crow Emulator</title>
+  <link rel="stylesheet" href="/src/styles/main.css">
+</head>
+<body>
+  <div id="app">
+    <header id="header">
+      <h1>Sampler-Crow</h1>
+      <div id="connection-status">
+        <span id="midi-status" class="status-dot disconnected">MIDI</span>
+        <span id="serial-status" class="status-dot disconnected">Serial</span>
+        <span id="audio-status" class="status-dot disconnected">Audio</span>
+      </div>
+      <div id="transport">
+        <button id="btn-connect" class="btn">Connect</button>
+        <span id="cpu-display">CPU: --</span>
+        <span id="mem-display">MEM: --</span>
+      </div>
+    </header>
+
+    <main id="main-content">
+      <section id="launchpad-section">
+        <h2>Launchpad Grid</h2>
+        <canvas id="launchpad-canvas" width="440" height="440"></canvas>
+      </section>
+
+      <section id="info-section">
+        <div id="audio-monitor">
+          <h2>Audio Monitor</h2>
+          <canvas id="waveform-canvas" width="400" height="120"></canvas>
+        </div>
+
+        <div id="serial-console">
+          <h2>Serial Console</h2>
+          <div id="console-output"></div>
+          <div id="console-input-row">
+            <input type="text" id="console-input" placeholder="Send command...">
+            <button id="btn-send" class="btn">Send</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
