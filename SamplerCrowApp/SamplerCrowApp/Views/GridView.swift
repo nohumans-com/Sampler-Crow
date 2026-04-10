@@ -64,6 +64,15 @@ struct GridView: View {
                     }
             )
             .padding(16)
+            .popover(
+                isPresented: Binding(
+                    get: { viewModel.selectedStep != nil },
+                    set: { if !$0 { viewModel.selectedStep = nil } }
+                ),
+                arrowEdge: .bottom
+            ) {
+                StepEditPopover(viewModel: viewModel)
+            }
 
             // Track labels
             HStack(spacing: 0) {

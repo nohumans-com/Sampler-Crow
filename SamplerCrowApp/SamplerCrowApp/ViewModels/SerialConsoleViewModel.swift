@@ -11,6 +11,10 @@ final class SerialConsoleViewModel {
     private let appState: AppState
     private let maxEntries = 500
     var gridViewModel: GridViewModel?
+    var mixerViewModel: MixerViewModel?
+    var fileBrowserViewModel: FileBrowserViewModel?
+    var clipEditorViewModel: ClipEditorViewModel?
+    var synthEngineViewModel: SynthEngineViewModel?
 
     init(appState: AppState) {
         self.appState = appState
@@ -61,6 +65,209 @@ final class SerialConsoleViewModel {
                     gridViewModel?.bpm = bpm
                 }
             }
+            return
+        }
+        // Parse step update: STEP:N
+        if line.hasPrefix("STEP:") {
+            if let step = Int(line.dropFirst(5)) {
+                gridViewModel?.handleStepUpdate(step)
+            }
+            return
+        }
+        // Parse mixer state: MIX:vol0,vol1,...|mute0,...|solo0,...
+        if line.hasPrefix("MIX:") {
+            let data = String(line.dropFirst(4))
+            mixerViewModel?.handleMixerResponse(data)
+            return
+        }
+        // Parse level meters: LVL:l0,l1,...,l7
+        if line.hasPrefix("LVL:") {
+            let data = String(line.dropFirst(4))
+            mixerViewModel?.handleLevelData(data)
+            return
+        }
+        // Parse step data: STEPDATA:track:step:note:velocity:gate
+        if line.hasPrefix("STEPDATA:") {
+            let parts = String(line.dropFirst(9)).split(separator: ":")
+            if parts.count >= 5,
+               let track = Int(parts[0]),
+               let step = Int(parts[1]),
+               let note = Int(parts[2]),
+               let velocity = Int(parts[3]),
+               let gate = Int(parts[4]) {
+                gridViewModel?.handleStepData(track: track, step: step, note: note, velocity: velocity, gate: gate)
+            }
+            return
+        }
+        // Directory listing responses
+        if line.hasPrefix("DIRLIST:") {
+            fileBrowserViewModel?.handleDirList(String(line.dropFirst(8)))
+            return
+        }
+        if line.hasPrefix("F:") {
+            let parts = String(line.dropFirst(2)).split(separator: ":", maxSplits: 1)
+            if parts.count == 2, let size = Int(parts[1]) {
+                fileBrowserViewModel?.handleFileEntry(String(parts[0]), size: size)
+            }
+            return
+        }
+        if line.hasPrefix("D:") {
+            fileBrowserViewModel?.handleDirEntry(String(line.dropFirst(2)))
+            return
+        }
+        if line == "ENDDIR" {
+            fileBrowserViewModel?.handleEndDir()
+            return
+        }
+        // Chop slice data: CHOPSLICES:track:count:b0,b1,b2,...
+        if line.hasPrefix("CHOPSLICES:") {
+            let parts = String(line.dropFirst(11)).split(separator: ":")
+            if parts.count >= 3,
+               let track = Int(parts[0]),
+               let count = Int(parts[1]) {
+                let boundaries = parts[2].split(separator: ",").compactMap { Int($0) }
+                if track >= 0 && track < appState.tracks.count {
+                    appState.tracks[track].samplerState.chopSliceCount = count
+                    appState.tracks[track].samplerState.chopSliceBoundaries = boundaries
+                }
+            }
+            return
+        }
+        // Sampler params response: SPARAMS:track:gain:pitch:cents:start:end:loop:ls:le:oneshot[:mode:rootnote:attack:decay:sustain:release:grainpos:grainwin:grainsize:graincount:grainspread:grainenv:chopsens:choptrig]
+        if line.hasPrefix("SPARAMS:") {
+            let parts = String(line.dropFirst(8)).split(separator: ":").compactMap { Int($0) }
+            if parts.count >= 10 {
+                let track = parts[0]
+                if track >= 0 && track < appState.tracks.count {
+                    let s = appState.tracks[track].samplerState
+                    s.gain = parts[1]
+                    s.pitchSemitones = parts[2]
+                    s.pitchCents = parts[3]
+                    s.sampleStart = parts[4]
+                    s.sampleEnd = parts[5]
+                    s.loopEnabled = parts[6] != 0
+                    s.loopStart = parts[7]
+                    s.loopEnd = parts[8]
+                    s.oneShot = parts[9] != 0
+                    // Extended fields
+                    if parts.count >= 11 { s.samplerMode = parts[10] }
+                    if parts.count >= 12 { s.rootNote = parts[11] }
+                    if parts.count >= 13 { s.attackMs = parts[12] }
+                    if parts.count >= 14 { s.decayMs = parts[13] }
+                    if parts.count >= 15 { s.sustainLevel = parts[14] }
+                    if parts.count >= 16 { s.releaseMs = parts[15] }
+                    if parts.count >= 17 { s.grainPosition = parts[16] }
+                    if parts.count >= 18 { s.grainWindowSize = parts[17] }
+                    if parts.count >= 19 { s.grainSizeMs = parts[18] }
+                    if parts.count >= 20 { s.grainCount = parts[19] }
+                    if parts.count >= 21 { s.grainSpread = parts[20] }
+                    if parts.count >= 22 { s.grainEnvShape = parts[21] }
+                    if parts.count >= 23 { s.chopSensitivity = parts[22] }
+                    if parts.count >= 24 { s.chopTriggerMode = parts[23] }
+                }
+            }
+            return
+        }
+        // Waveform data: WFORM:track:p0,p1,...,p127
+        if line.hasPrefix("WFORM:") {
+            let payload = String(line.dropFirst(6))
+            let colonIdx = payload.firstIndex(of: ":")
+            if let ci = colonIdx,
+               let track = Int(payload[payload.startIndex..<ci]) {
+                let peakStr = payload[payload.index(after: ci)...]
+                let peaks = peakStr.split(separator: ",").compactMap { UInt8($0) }
+                if track >= 0 && track < appState.tracks.count && peaks.count == 128 {
+                    appState.tracks[track].samplerState.waveformPeaks = peaks
+                }
+            }
+            return
+        }
+        // Pad params response: PPARAMS:track:pad:gain:pitch:cents:start:end:loop:ls:le:oneshot
+        if line.hasPrefix("PPARAMS:") {
+            let parts = String(line.dropFirst(8)).split(separator: ":").compactMap { Int($0) }
+            if parts.count >= 11 {
+                let track = parts[0], pad = parts[1]
+                if track >= 0 && track < appState.tracks.count && pad >= 0 && pad < 8 {
+                    let p = appState.tracks[track].drumPads[pad].params
+                    p.gain = parts[2]
+                    p.pitchSemitones = parts[3]
+                    p.pitchCents = parts[4]
+                    p.sampleStart = parts[5]
+                    p.sampleEnd = parts[6]
+                    p.loopEnabled = parts[7] != 0
+                    p.loopStart = parts[8]
+                    p.loopEnd = parts[9]
+                    p.oneShot = parts[10] != 0
+                }
+            }
+            return
+        }
+        // Pad waveform data: PADWFORM:track:pad:p0,p1,...,p127
+        if line.hasPrefix("PADWFORM:") {
+            let payload = String(line.dropFirst(9))
+            let parts = payload.split(separator: ":", maxSplits: 2)
+            if parts.count >= 3,
+               let track = Int(parts[0]),
+               let pad = Int(parts[1]) {
+                let peaks = parts[2].split(separator: ",").compactMap { UInt8($0) }
+                if track >= 0 && track < appState.tracks.count && pad >= 0 && pad < 8 {
+                    appState.tracks[track].drumPads[pad].waveformPeaks = peaks
+                }
+            }
+            return
+        }
+        // Clip data response: CLIP:track:n,v,g,p;n,v,g,p;...
+        if line.hasPrefix("CLIP:") {
+            let payload = String(line.dropFirst(5))
+            if let colonIdx = payload.firstIndex(of: ":"),
+               let track = Int(payload[payload.startIndex..<colonIdx]) {
+                let data = String(payload[payload.index(after: colonIdx)...])
+                if track >= 0 && track < appState.tracks.count {
+                    clipEditorViewModel?.handleClipResponse(data)
+                }
+            }
+            return
+        }
+        // Engine params response: EPARAMS:track:engine:timbre:harmonics:morph:enabled:voiceCount
+        if line.hasPrefix("EPARAMS:") {
+            let parts = String(line.dropFirst(8)).split(separator: ":").compactMap { Int($0) }
+            if parts.count >= 5 {
+                let track = parts[0]
+                if track >= 0 && track < appState.tracks.count {
+                    if synthEngineViewModel?.trackIndex == track {
+                        synthEngineViewModel?.engineModel = parts[1]
+                        synthEngineViewModel?.timbre = parts[2]
+                        synthEngineViewModel?.harmonics = parts[3]
+                        synthEngineViewModel?.morph = parts[4]
+                        if parts.count >= 7 {
+                            synthEngineViewModel?.voiceCount = parts[6]
+                        }
+                    }
+                }
+            }
+            return
+        }
+        // DX7 file list: DX7FILES:file1.syx,file2.syx,...
+        if line.hasPrefix("DX7FILES:") {
+            let data = String(line.dropFirst(9))
+            let files = data.split(separator: ",").map { String($0) }
+            synthEngineViewModel?.dx7Files = files
+            return
+        }
+        // DX7 patch names: DX7NAMES:name1,name2,...,name32
+        if line.hasPrefix("DX7NAMES:") {
+            let data = String(line.dropFirst(9))
+            let names = data.split(separator: ",").map { String($0) }
+            synthEngineViewModel?.dx7PatchNames = names
+            return
+        }
+        // Sampler param acknowledgments — silent
+        if line.hasPrefix("ACK:SAMPLEPARAM:") || line.hasPrefix("ACK:LOADPAD:") || line.hasPrefix("ACK:CLEARPAD:") || line.hasPrefix("ACK:SETDRUMMODE:") || line.hasPrefix("ACK:DX7LOAD:") || line.hasPrefix("ACK:DX7CLEAR:") || line.hasPrefix("ACK:DX7UPLOAD:") || line.hasPrefix("ACK:MKDIR") || line.hasPrefix("ACK:DELETEFILE") || line.hasPrefix("ACK:UPLOAD") {
+            return
+        }
+        // Mixer command acknowledgments — show in console for verification
+        if line.hasPrefix("ACK:") {
+            log("< \(line)", type: .incoming)
             return
         }
         // Filter out noisy POT readings (floating pins)

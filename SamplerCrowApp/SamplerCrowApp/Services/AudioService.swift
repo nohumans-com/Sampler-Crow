@@ -40,6 +40,10 @@ final class AudioTapBuffer: @unchecked Sendable {
     private var readPos = 0
     private var ringCount = 0
 
+    // Fade-in ramp to avoid pop/glitch when buffer transitions from empty to having data
+    private let rampLength = 256
+    private var rampRemaining = 256
+
     init() {
         ringBuffer = [Float](repeating: 0, count: ringCapacity)
     }
@@ -75,6 +79,16 @@ final class AudioTapBuffer: @unchecked Sendable {
             readPos = (readPos + 1) % ringCapacity
         }
         ringCount -= samplesToRead
+        // Apply fade-in ramp to avoid pop when transitioning from silence to data
+        if samplesToRead > 0 && rampRemaining > 0 {
+            for i in 0..<samplesToRead {
+                if rampRemaining > 0 {
+                    let gain = Float(rampLength - rampRemaining) / Float(rampLength)
+                    buffer[i] *= gain
+                    rampRemaining -= 1
+                }
+            }
+        }
         // Fill remaining with silence
         if samplesToRead < frameCount * 2 {
             for i in samplesToRead..<(frameCount * 2) {
@@ -83,6 +97,17 @@ final class AudioTapBuffer: @unchecked Sendable {
         }
         lock.unlock()
         return samplesToRead / 2
+    }
+
+    /// Reset ring buffer state and fade-in ramp for a clean reconnection
+    func reset() {
+        lock.lock()
+        ringBuffer = [Float](repeating: 0, count: ringCapacity)
+        writePos = 0
+        readPos = 0
+        ringCount = 0
+        rampRemaining = rampLength
+        lock.unlock()
     }
 
     func read() -> (samples: [Float], peakL: Float, peakR: Float)? {
@@ -391,6 +416,7 @@ final class AudioService: ObservableObject {
         }
 
         tapBuffer.resetTapCount()
+        tapBuffer.reset()
 
         guard let deviceID = Self.findTeensyInputDevice() else {
             print("AudioService: ERROR — Teensy input device NOT FOUND")

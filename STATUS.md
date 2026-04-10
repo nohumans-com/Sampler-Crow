@@ -1,7 +1,7 @@
 # Sampler-Crow — Project Status
 
 **Last updated:** 2026-04-05
-**Current phase:** Phase 7a complete, ready for Phase 7b or 8
+**Current phase:** Phase 7b complete, ready for Phase 7c or 8
 
 A portable music workstation (Dirtywave M8 / OP-XY / SP-404 style) built on Teensy 4.1, with a native macOS SwiftUI host app for development, monitoring, and control.
 
@@ -24,7 +24,8 @@ A portable music workstation (Dirtywave M8 / OP-XY / SP-404 style) built on Teen
   - Track 6: Lead (square + LPF, percussive, also external MIDI input)
   - Track 7: Pluck (triangle + fast decay)
 - **Sequencer engine**: 8 tracks × 8 steps, BPM clock, swing-ready, demo beat pre-programmed
-- **Serial protocol**: `PING`, `NOTE_ON`, `NOTE_OFF`, `TRIG:track:note:vel`, `PLAY`, `STOP`, `CLEAR`, `BPM`, `TOGGLE:track:step`, `STATUS`, `GRID`
+- **Serial protocol**: `PING`, `NOTE_ON`, `NOTE_OFF`, `TRIG:track:note:vel`, `PLAY`, `STOP`, `CLEAR`, `BPM`, `TOGGLE:track:step`, `STATUS`, `GRID`, `VOL:track:0-100`, `MUTE:track`, `SOLO:track`, `MIXER`
+- **Mixer engine**: per-track volume faders (0-100), mute, solo with proper solo-override logic. Gains computed as `defaultGain[track] * trackVolume[track]` with mute/solo override
 - **Grid state** emitted via serial `GRD:c0,c1,...,c63` and MIDI ch16 for Launchpad LEDs
 
 ### macOS Host App (`SamplerCrowApp/`)
@@ -39,7 +40,7 @@ Built in **SwiftUI, Swift 6, macOS 15+**. Deployed to `/Applications/Sampler Cro
   - **Launchpad tab**: 8×8 Canvas-drawn grid with Play/Stop transport
   - **Audio tab**: real-time waveform + L/R meters, output device picker, Test Tone, Reconnect Audio, tap call counter
   - **Console tab**: serial log with command input, filters POT/CPU/MEM noise
-  - **Mixer tab**: placeholder
+  - **Mixer tab**: 8 channel strips with per-track volume faders, mute (M) and solo (S) buttons, color-coded per track, syncs state from Teensy via `MIXER` command
 
 ### Verified end-to-end
 - Teensy produces audio (peak ~20k/32k verified via ffmpeg)
@@ -59,10 +60,12 @@ Built in **SwiftUI, Swift 6, macOS 15+**. Deployed to `/Applications/Sampler Cro
 
 ## Roadmap — what's next
 
-### Phase 7b — Functional Mixer (next recommended)
-- Per-track volume faders
-- Mute/solo buttons
-- UI tab: track strips with meters
+### ~~Phase 7b — Functional Mixer~~ DONE
+- Per-track volume faders (0-100, draggable)
+- Mute/solo buttons with proper solo-override logic
+- UI tab: 8 color-coded channel strips with fader + M/S buttons
+- Firmware: `VOL:track:value`, `MUTE:track`, `SOLO:track`, `MIXER` commands
+- Teensy responds with `MIX:vol0,vol1,...|mute0,...|solo0,...`
 
 ### Phase 7c — Velocity/Pitch per step
 - Hold a Launchpad pad + turn virtual knob → set step velocity
@@ -138,8 +141,8 @@ Sampler-Crow/
 │       ├── SamplerCrowApp.swift # @main entry
 │       ├── Models/              # ConnectionStatus, LogEntry, PadColor, GridNote, KeyboardMapping
 │       ├── Services/            # Serial, MIDI, Audio, Launchpad, DeviceDiscovery
-│       ├── ViewModels/          # AppState, GridVM, SerialConsoleVM, KeyboardVM
-│       ├── Views/               # MainView, GridView, AudioMonitorView, SerialConsoleView, StatusBarView
+│       ├── ViewModels/          # AppState, GridVM, SerialConsoleVM, KeyboardVM, MixerVM
+│       ├── Views/               # MainView, GridView, AudioMonitorView, SerialConsoleView, MixerView, StatusBarView
 │       └── Theme/AppTheme.swift
 ├── esp32/                       # CrowPanel 5" firmware (Phase 13, not started)
 └── chrome-emulator/             # deprecated web UI (kept for reference)

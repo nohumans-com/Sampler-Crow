@@ -6,7 +6,13 @@ final class AppState {
     var connectionStatus = ConnectionStatus()
     var cpuUsage: String = "--"
     var memUsage: String = "--"
-    var selectedTab: SidebarTab = .console
+    var selectedTab: SidebarTab = .trackEdit
+    var selectedTrackIndex: Int? = 0  // auto-select track 1 so Navigator shows content immediately
+    var project = Project()
+
+    var tracks: [TrackState] = MixerViewModel.trackNames.enumerated().map { i, name in
+        TrackState(index: i, name: name)
+    }
 
     let serialService = SerialService()
     let midiService = MIDIService()
@@ -15,10 +21,12 @@ final class AppState {
 }
 
 enum SidebarTab: String, CaseIterable, Identifiable {
-    case grid = "Launchpad"
-    case audio = "Audio"
-    case console = "Console"
+    case trackEdit = "Navigator"
     case mixer = "Mixer"
+    case samples = "Samples"
+    case audio = "Audio"
+    case grid = "Launchpad"
+    case console = "Console"
 
     var id: String { rawValue }
 
@@ -28,6 +36,8 @@ enum SidebarTab: String, CaseIterable, Identifiable {
         case .audio: "waveform"
         case .console: "terminal"
         case .mixer: "slider.horizontal.3"
+        case .samples: "sdcard"
+        case .trackEdit: "rectangle.split.3x3"
         }
     }
 }

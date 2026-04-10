@@ -8,6 +8,11 @@ final class GridViewModel {
     var isPlaying = false
     var bpm: Float = 120
 
+    // Step editing state
+    var selectedStep: (track: Int, step: Int)?
+    var stepVelocity: Int = 100
+    var stepNote: Int = 60
+
     private let appState: AppState
     private let consoleVM: SerialConsoleViewModel
 
@@ -23,13 +28,55 @@ final class GridViewModel {
             return
         }
 
-        // Send toggle command via serial (more reliable than MIDI routing)
         let track = row   // row 0 = track 0 (top)
         let step = col    // col 0 = step 0 + pageOffset (TODO: add page support)
-        print("GridViewModel.padPressed: row=\(row) col=\(col) -> TOGGLE:\(track):\(step)")
-        Task {
-            try? await appState.serialService.send("TOGGLE:\(track):\(step)")
+
+        // If pad is active, open step editor; if empty, toggle it on
+        let colorIdx = padColors[row][col]
+        let isActive = colorIdx > 1  // 0=off, 1=dim playhead, >1=has note
+        if isActive {
+            selectStep(track: track, step: step)
+        } else {
+            print("GridViewModel.padPressed: row=\(row) col=\(col) -> TOGGLE:\(track):\(step)")
+            Task {
+                try? await appState.serialService.send("TOGGLE:\(track):\(step)")
+            }
         }
+    }
+
+    // Select a step for editing — queries firmware for current values
+    func selectStep(track: Int, step: Int) {
+        selectedStep = (track: track, step: step)
+        Task {
+            try? await appState.serialService.send("GETSTEP:\(track):\(step)")
+        }
+    }
+
+    // Set velocity for the currently selected step
+    func setStepVelocity(_ velocity: Int) {
+        guard let sel = selectedStep else { return }
+        let vel = max(0, min(127, velocity))
+        stepVelocity = vel
+        Task {
+            try? await appState.serialService.send("SETVEL:\(sel.track):\(sel.step):\(vel)")
+        }
+    }
+
+    // Set note for the currently selected step
+    func setStepNote(_ note: Int) {
+        guard let sel = selectedStep else { return }
+        let n = max(0, min(127, note))
+        stepNote = n
+        Task {
+            try? await appState.serialService.send("SETNOTE:\(sel.track):\(sel.step):\(n)")
+        }
+    }
+
+    // Handle STEPDATA response from firmware
+    func handleStepData(track: Int, step: Int, note: Int, velocity: Int, gate: Int) {
+        guard let sel = selectedStep, sel.track == track, sel.step == step else { return }
+        stepNote = note
+        stepVelocity = velocity
     }
 
     func padReleased(row: Int, col: Int) {
@@ -113,6 +160,36 @@ final class GridViewModel {
     func requestGridState() {
         Task {
             try? await appState.serialService.send("GRID")
+        }
+    }
+
+    /// Handle lightweight STEP:N messages from Teensy (replaces full GRD: per step)
+    /// Updates playhead position on the local grid and mirrors to Launchpad
+    func handleStepUpdate(_ step: Int) {
+        guard step >= 0 && step < 8 else { return }
+        let prevStep = step == 0 ? 7 : step - 1
+
+        // Track colors for reverting previous step
+        let trackColorPalette: [UInt8] = [5, 9, 13, 21, 37, 45, 49, 53]
+
+        for row in 0..<8 {
+            // Revert previous step column
+            let wasActive = padColors[row][prevStep] == 3 || padColors[row][prevStep] == 1
+            if wasActive {
+                // Check if this step had a pattern color before playhead
+                // If the step was bright white (3), it had a note; if dim white (1), it was empty
+                let hadNote = padColors[row][prevStep] == 3
+                padColors[row][prevStep] = hadNote ? trackColorPalette[row] : 0
+            }
+
+            // Set current step to playhead color
+            let hasNote = padColors[row][step] != 0 && padColors[row][step] != 1
+            padColors[row][step] = hasNote ? 3 : 1  // bright or dim playhead
+        }
+
+        // Mirror to Launchpad
+        Task {
+            await appState.launchpadService.updateGrid(padColors)
         }
     }
 }
